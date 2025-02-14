@@ -67,40 +67,35 @@ def record_vote(profile_id):
         user_email = get_user_email()
         profile_ref = db.collection("profiles").document(profile_id)
         
-        # 1. Check local cache first
-        if f"voted_{profile_id}" in st.session_state:
-            return (False, "Already voted (local cache)")
+        # Get current document first to validate existence
+        current_doc = profile_ref.get()
         
-        # 2. Server-side check with transaction
-        @firestore.transactional
-        def check_and_vote(transaction):
-            doc = transaction.get(profile_ref)
-            if not doc.exists:
-                raise ValueError("Profile not found")
+        if not current_doc.exists:
+            return (False, "Profile not found")
             
-            voters = doc.get("voted_by", [])
-            if user_email in voters:
-                st.session_state[f"voted_{profile_id}"] = True  # Cache locally
-                return False
-                
-            transaction.update(profile_ref, {
-                "votes": firestore.Increment(1),
-                "voted_by": firestore.ArrayUnion([user_email])
-            })
-            return True
-
-        success = check_and_vote(db.transaction())
+        current_data = current_doc.to_dict()
         
-        if success:
-            # Update local cache
-            st.session_state[f"voted_{profile_id}"] = True
+        # Client-side check
+        if user_email in current_data.get('voted_by', []):
+            return (False, "Already voted (local check)")
+        
+        # Server-side atomic update
+        profile_ref.update({
+            'votes': firestore.Increment(1),
+            'voted_by': firestore.ArrayUnion([user_email])
+        })
+        
+        # Verify update
+        updated_doc = profile_ref.get()
+        if user_email in updated_doc.get('voted_by', []):
             return (True, "Vote recorded!")
         else:
-            return (False, "Already voted (server check)")
-            
+            return (False, "Vote failed")
+
     except Exception as e:
         log_error(db, "VOTING_ERROR", str(e))
-        return (False, f"Voting failed: {str(e)}")
+        return (False, f"Error: {str(e)}")
+        
 # Main app
 try:
     st.markdown("""
