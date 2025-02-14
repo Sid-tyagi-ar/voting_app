@@ -64,29 +64,39 @@ def get_profiles():
 def record_vote(profile_id):
     try:
         user_email = get_user_email()
-        profile_ref = db.collection("profiles").document(profile_id)  # Fix typo if present
         
+        # Validate profile reference
+        if not isinstance(profile_id, str) or '/' in profile_id:
+            raise ValueError("Invalid profile ID format")
+            
+        profile_ref = db.collection("profiles").document(profile_id)
+        
+        if not isinstance(profile_ref, firestore.DocumentReference):
+            raise TypeError("Profile reference is not a valid document path")
+
         @firestore.transactional
         def vote_transaction(transaction):
             doc = transaction.get(profile_ref)
+            
+            if not doc.exists:
+                raise ValueError("Profile does not exist")
+                
             profile_data = doc.to_dict()
             
             if user_email in profile_data.get('voted_by', []):
-                return False  # Already voted
+                return (False, None)  # Already voted
                 
             transaction.update(profile_ref, {
                 'votes': firestore.Increment(1),
                 'voted_by': firestore.ArrayUnion([user_email])
             })
-            return True  # Vote succeeded
-            
-        success = vote_transaction(db.transaction())
-        return (success, None)
+            return (True, None)  # Success
+
+        return vote_transaction(db.transaction())
         
     except Exception as e:
         log_error(db, "VOTING_ERROR", f"{str(e)} - Profile: {profile_id}")
-        return (False, str(e))  # Return error message
-
+        return (False, str(e))
 # Main app
 try:
     st.markdown("""
