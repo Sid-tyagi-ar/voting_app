@@ -63,43 +63,54 @@ def get_profiles():
 # Voting system
 def record_vote(profile_id):
     try:
-        user_email = get_user_email()
-        
-        # Validate profile reference
-        if not isinstance(profile_id, str) or '/' in profile_id:
+        # Validate input
+        if not isinstance(profile_id, str) or not profile_id.strip():
             raise ValueError("Invalid profile ID format")
-            
+
+        # Get authenticated user
+        user_email = get_user_email()  # Handles email validation
+        
+        # Create document reference
         profile_ref = db.collection("profiles").document(profile_id)
         
+        # Transaction logic
         @firestore.transactional
-        def vote_transaction(transaction):
-            # Get document snapshot
-            doc_snapshot = transaction.get(profile_ref)
+        def process_vote(transaction):
+            # 1. Get document snapshot
+            snapshot = transaction.get(profile_ref)
             
-            # Check if document exists
-            if not doc_snapshot.exists:
-                raise ValueError("Profile document does not exist")
+            # 2. Validate document exists
+            if not snapshot.exists:
+                raise ValueError("Profile document not found")
             
-            # Get current data
-            profile_data = doc_snapshot.to_dict()
+            # 3. Check existing votes
+            data = snapshot.to_dict()
+            voters = data.get("voted_by", [])
             
-            # Check existing votes
-            if user_email in profile_data.get('voted_by', []):
-                return (False, None)  # Already voted
+            if user_email in voters:
+                return (False, "Already voted")
                 
-            # Perform update
+            # 4. Update vote count
             transaction.update(profile_ref, {
-                'votes': firestore.Increment(1),
-                'voted_by': firestore.ArrayUnion([user_email])
+                "votes": firestore.Increment(1),
+                "voted_by": firestore.ArrayUnion([user_email])
             })
-            return (True, None)  # Success
+            
+            return (True, "Vote recorded")
 
-        return vote_transaction(db.transaction())
-        
+        # Execute transaction
+        success, message = process_vote(db.transaction())
+        return (success, message)
+
+    except ValueError as ve:
+        return (False, f"Validation error: {str(ve)}")
+    except firestore.TransportError as te:
+        log_error(db, "NETWORK_ERROR", f"{te} - Profile: {profile_id}")
+        return (False, "Network error. Please check your connection.")
     except Exception as e:
-        log_error(db, "VOTING_ERROR", f"{str(e)} - Profile: {profile_id}")
-        return (False, str(e))
-    
+        log_error(db, "VOTING_ERROR", f"{e} - Profile: {profile_id}")
+        return (False, f"Unexpected error: {str(e)}")
+
 # Main app
 try:
     st.markdown("""
