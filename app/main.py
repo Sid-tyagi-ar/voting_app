@@ -6,7 +6,6 @@ import traceback
 from datetime import datetime
 from PIL import Image
 from firebase_admin import firestore
-from google.cloud.exceptions import TransportError 
 
 # Custom modules
 from firebase_utils import initialize_firebase
@@ -65,57 +64,30 @@ def get_profiles():
 # Voting system
 def record_vote(profile_id):
     try:
-        # Validate input parameters
-        if not isinstance(profile_id, str) or not profile_id.strip():
-            raise ValueError("Invalid profile ID format")
-
         user_email = get_user_email()
-        
-        # Create document reference with explicit validation
         profile_ref = db.collection("profiles").document(profile_id)
-        if not isinstance(profile_ref, firestore.DocumentReference):
-            raise TypeError("Created invalid document reference")
+        
+        # Atomic update operation
+        update_result = profile_ref.update({
+            'votes': firestore.Increment(1),
+            'voted_by': firestore.ArrayUnion([user_email])
+        })
+        
+        # Verify if the update actually occurred
+        updated_doc = profile_ref.get()
+        current_votes = updated_doc.get('votes')
+        current_voters = updated_doc.get('voted_by')
+        
+        if user_email in current_voters and current_votes > 0:
+            return (True, "Vote recorded successfully!")
+        else:
+            return (False, "Vote failed - you may have already voted")
 
-        @firestore.transactional
-        def process_vote(transaction):
-            # Get document snapshot through transaction
-            doc_snapshot = transaction.get(profile_ref)
-            
-            # Validate snapshot type
-            if not hasattr(doc_snapshot, 'exists'):
-                raise TypeError("Unexpected Firestore response type")
-            
-            # Check document existence
-            if not doc_snapshot.exists:
-                raise ValueError("Profile document does not exist")
-            
-            # Get current voting data
-            profile_data = doc_snapshot.to_dict()
-            voters = profile_data.get('voted_by', [])
-            
-            # Check existing votes
-            if user_email in voters:
-                return (False, "Already voted for this profile")
-                
-            # Perform atomic update
-            transaction.update(profile_ref, {
-                'votes': firestore.Increment(1),
-                'voted_by': firestore.ArrayUnion([user_email])
-            })
-            return (True, "Vote successfully recorded")
-
-        # Execute transaction
-        success, message = process_vote(db.transaction())
-        return (success, message)
-
-    except (ValueError, TypeError) as ve:
-        return (False, f"Validation error: {str(ve)}")
-    except TransportError as te:
-        log_error(db, "NETWORK_ERROR", f"{te} - Profile: {profile_id}")
-        return (False, "Network connectivity issue. Please try again.")
+    except firestore.exceptions.NotFound:
+        return (False, "Profile not found")
     except Exception as e:
         log_error(db, "VOTING_ERROR", f"{e} - Profile: {profile_id}")
-        return (False, f"System error: {str(e)}")
+        return (False, f"Error recording vote: {str(e)}")
         
 # Main app
 try:
