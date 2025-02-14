@@ -4,4 +4,3 @@ Pillow
 dnspython3
 requests
 python-dateutil
-firestore
