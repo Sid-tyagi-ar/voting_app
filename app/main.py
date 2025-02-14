@@ -5,7 +5,7 @@ import random
 import traceback
 from datetime import datetime
 from PIL import Image
-
+from firebase_admin import firestore
 # Custom modules
 from firebase_utils import initialize_firebase
 from email_validation import is_valid_email
@@ -64,7 +64,7 @@ def get_profiles():
 def record_vote(profile_id):
     try:
         user_email = get_user_email()
-        profile_ref = db.collection("profiles").document(profile_id)
+        profile_ref = db.collection("profiles").document(profile_id)  # Fix typo if present
         
         @firestore.transactional
         def vote_transaction(transaction):
@@ -72,20 +72,20 @@ def record_vote(profile_id):
             profile_data = doc.to_dict()
             
             if user_email in profile_data.get('voted_by', []):
-                return False
+                return False  # Already voted
                 
             transaction.update(profile_ref, {
                 'votes': firestore.Increment(1),
                 'voted_by': firestore.ArrayUnion([user_email])
             })
-            return True
+            return True  # Vote succeeded
             
-        return vote_transaction(db.transaction())
+        success = vote_transaction(db.transaction())
+        return (success, None)
         
     except Exception as e:
         log_error(db, "VOTING_ERROR", f"{str(e)} - Profile: {profile_id}")
-        st.error("Failed to record vote. Please try again.")
-        return False
+        return (False, str(e))  # Return error message
 
 # Main app
 try:
@@ -145,10 +145,13 @@ try:
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("❤️ Vote for this Profile"):
-                        if record_vote(profile['id']):
+                        success, error_msg = record_vote(profile['id'])
+                        if success:
                             st.success("Vote recorded!")
                             st.session_state.profile_index += 1
                             st.rerun()
+                        elif error_msg:
+                            st.error(f"Failed to record vote: {error_msg}")
                         else:
                             st.warning("You've already voted for this profile!")
                 with col2:
