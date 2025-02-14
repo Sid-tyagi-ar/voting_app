@@ -67,35 +67,28 @@ def record_vote(profile_id):
         user_email = get_user_email()
         profile_ref = db.collection("profiles").document(profile_id)
         
-        # Get current document first to validate existence
-        current_doc = profile_ref.get()
-        
-        if not current_doc.exists:
+        # Get document data as dictionary
+        doc = profile_ref.get()
+        if not doc.exists:
             return (False, "Profile not found")
             
-        current_data = current_doc.to_dict()
+        data = doc.to_dict()
         
-        # Client-side check
-        if user_email in current_data.get('voted_by', []):
-            return (False, "Already voted (local check)")
+        # Check existing votes using dictionary get
+        if user_email in data.get('voted_by', []):
+            return (False, "You've already voted for this profile")
         
-        # Server-side atomic update
+        # Atomic update with native Firestore operations
         profile_ref.update({
             'votes': firestore.Increment(1),
             'voted_by': firestore.ArrayUnion([user_email])
         })
         
-        # Verify update
-        updated_doc = profile_ref.get()
-        if user_email in updated_doc.get('voted_by', []):
-            return (True, "Vote recorded!")
-        else:
-            return (False, "Vote failed")
+        return (True, "Vote recorded successfully!")
 
     except Exception as e:
         log_error(db, "VOTING_ERROR", str(e))
-        return (False, f"Error: {str(e)}")
-        
+        return (False, f"Voting failed: {str(e)}")
 # Main app
 try:
     st.markdown("""
