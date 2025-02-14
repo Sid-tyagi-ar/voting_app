@@ -91,19 +91,27 @@ def record_vote(profile_id):
 try:
     st.markdown("""
     <style>
-    .profile-card {
-        background: white;
-        padding: 2rem;
-        border-radius: 15px;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        margin: 2rem auto;
-        max-width: 600px;
+    .leaderboard-entry {
+        padding: 1rem;
+        margin: 0.5rem 0;
+        border-radius: 10px;
+        background: var(--background-color);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
     }
-    .vote-buttons {
-        margin-top: 1.5rem;
-        gap: 1rem;
-        display: flex;
-        justify-content: center;
+    
+    /* Light theme */
+    [data-theme="light"] .leaderboard-entry {
+        --background-color: #f8f9fa;
+        --text-color: #000000;
+        --border-color: #e0e0e0;
+    }
+    
+    /* Dark theme */
+    [data-theme="dark"] .leaderboard-entry {
+        --background-color: #2e2e2e;
+        --text-color: #ffffff;
+        --border-color: #444444;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -194,6 +202,7 @@ try:
                     st.error("Failed to submit profile. Please try again.")
 
     # Leaderboard
+    # Leaderboard
     st.markdown("## 🏆 Current Leaderboard")
     try:
         leaderboard = sorted(st.session_state.profiles, 
@@ -202,7 +211,7 @@ try:
         
         for idx, entry in enumerate(leaderboard):
             st.markdown(f"""
-            <div style="padding:1rem; margin:0.5rem 0; border-radius:10px; background:#f8f9fa;">
+            <div class="leaderboard-entry">
                 <h4>#{idx+1} {entry['name']}</h4>
                 <p>🎓 {entry['batch_year']} | {entry['gender']} | ❤️ {entry.get('votes', 0)} votes</p>
             </div>
