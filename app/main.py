@@ -71,21 +71,23 @@ def record_vote(profile_id):
             
         profile_ref = db.collection("profiles").document(profile_id)
         
-        if not isinstance(profile_ref, firestore.DocumentReference):
-            raise TypeError("Profile reference is not a valid document path")
-
         @firestore.transactional
         def vote_transaction(transaction):
-            doc = transaction.get(profile_ref)
+            # Get document snapshot
+            doc_snapshot = transaction.get(profile_ref)
             
-            if not doc.exists:
-                raise ValueError("Profile does not exist")
-                
-            profile_data = doc.to_dict()
+            # Check if document exists
+            if not doc_snapshot.exists:
+                raise ValueError("Profile document does not exist")
             
+            # Get current data
+            profile_data = doc_snapshot.to_dict()
+            
+            # Check existing votes
             if user_email in profile_data.get('voted_by', []):
                 return (False, None)  # Already voted
                 
+            # Perform update
             transaction.update(profile_ref, {
                 'votes': firestore.Increment(1),
                 'voted_by': firestore.ArrayUnion([user_email])
@@ -97,6 +99,7 @@ def record_vote(profile_id):
     except Exception as e:
         log_error(db, "VOTING_ERROR", f"{str(e)} - Profile: {profile_id}")
         return (False, str(e))
+    
 # Main app
 try:
     st.markdown("""
