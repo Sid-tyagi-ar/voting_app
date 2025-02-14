@@ -1,72 +1,22 @@
 import streamlit as st
-import firebase_admin
-from firebase_admin import credentials, firestore
-from PIL import Image
 import base64
 import io
 import random
-import re
-import dns.resolver
 import traceback
 from datetime import datetime
+from PIL import Image
 
-# Initialize Firebase with error handling
+# Custom modules
+from firebase_utils import initialize_firebase
+from email_validation import is_valid_email
+from logging_utils import log_error
+
+# Initialize Firebase
 try:
-    if not firebase_admin._apps:
-        cred = credentials.Certificate({
-            "type": st.secrets["firebase"]["type"],
-            "project_id": st.secrets["firebase"]["project_id"],
-            "private_key_id": st.secrets["firebase"]["private_key_id"],
-            "private_key": st.secrets["firebase"]["private_key"].replace('\\n', '\n'),
-            "client_email": st.secrets["firebase"]["client_email"],
-            "client_id": st.secrets["firebase"]["client_id"],
-            "auth_uri": st.secrets["firebase"]["auth_uri"],
-            "token_uri": st.secrets["firebase"]["token_uri"],
-            "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"]
-        })
-        firebase_admin.initialize_app(cred)
-    db = firestore.client()
+    db = initialize_firebase()
 except Exception as e:
     st.error("Failed to initialize Firebase connection")
     st.stop()
-
-# Error logging function
-def log_error(error_type, message):
-    error_ref = db.collection('errors').document()
-    error_ref.set({
-        'timestamp': datetime.now(),
-        'error_type': error_type,
-        'message': message,
-        'user_email': st.session_state.get('user_email', 'unknown'),
-        'page': 'voting_interface'
-    })
-
-# Email validation functions
-def is_valid_domain(domain):
-    try:
-        dns.resolver.resolve(domain, 'MX')
-        return True
-    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, 
-            dns.resolver.NoNameservers, dns.resolver.Timeout):
-        return False
-
-def is_valid_email(email):
-    try:
-        if not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", email):
-            return False
-            
-        domain = email.split('@')[-1]
-        with open('disposable_domains.txt') as f:
-            disposable_domains = set(f.read().splitlines())
-            
-        if domain in disposable_domains:
-            return False
-            
-        return is_valid_domain(domain)
-    except Exception as e:
-        log_error("EMAIL_VALIDATION_ERROR", str(e))
-        return False
 
 # Session management
 def get_user_email():
@@ -79,27 +29,25 @@ def get_user_email():
                 email = email.strip().lower()
                 if not is_valid_email(email):
                     st.error("Please enter a valid institutional email address")
-                    log_error("INVALID_EMAIL_ATTEMPT", f"Invalid email tried: {email}")
+                    log_error(db, "INVALID_EMAIL_ATTEMPT", f"Invalid email tried: {email}")
                 else:
                     st.session_state.user_email = email
                     st.rerun()
             
-            st.markdown("""
-            <div style="margin-top: 1rem; color: #666; font-size: 0.9rem;">
+            st.markdown("""<div style="margin-top:1rem;color:#666;font-size:0.9rem">
                 <p>We verify emails to ensure fair voting:</p>
                 <ul>
                     <li>✅ Valid institutional/organization email</li>
                     <li>❌ No disposable/temporary emails</li>
                     <li>🔒 Your email will only be used for vote tracking</li>
                 </ul>
-            </div>
-            """, unsafe_allow_html=True)
+            </div>""", unsafe_allow_html=True)
             
             st.markdown("</div>", unsafe_allow_html=True)
             st.stop()
     return st.session_state.user_email
 
-# Profile management with error handling
+# Profile management
 def get_profiles():
     try:
         if 'profiles' not in st.session_state:
@@ -109,11 +57,11 @@ def get_profiles():
             st.session_state.profiles = profile_list
             st.session_state.profile_index = 0
     except Exception as e:
-        log_error("PROFILE_LOAD_ERROR", str(e))
+        log_error(db, "PROFILE_LOAD_ERROR", str(e))
         st.error("Failed to load profiles. Please try again later.")
         st.stop()
 
-# Voting system with transaction
+# Voting system
 def record_vote(profile_id):
     try:
         user_email = get_user_email()
@@ -136,11 +84,11 @@ def record_vote(profile_id):
         return vote_transaction(db.transaction())
         
     except Exception as e:
-        log_error("VOTING_ERROR", f"{str(e)} - Profile: {profile_id}")
+        log_error(db, "VOTING_ERROR", f"{str(e)} - Profile: {profile_id}")
         st.error("Failed to record vote. Please try again.")
         return False
 
-# Main app interface
+# Main app
 try:
     st.markdown("""
     <style>
@@ -164,7 +112,7 @@ try:
     get_profiles()
     get_user_email()
 
-    # Profile display and voting
+    # Display current profile
     if st.session_state.profile_index < len(st.session_state.profiles):
         profile = st.session_state.profiles[st.session_state.profile_index]
         
@@ -178,7 +126,7 @@ try:
                         img_bytes = base64.b64decode(profile["photo"])
                         st.image(Image.open(io.BytesIO(img_bytes)), use_container_width=True)
                     except Exception as e:
-                        log_error("IMAGE_LOAD_ERROR", str(e))
+                        log_error(db, "IMAGE_LOAD_ERROR", str(e))
                         st.error("Error loading profile image")
             
             with cols[1]:
@@ -187,7 +135,6 @@ try:
                 st.markdown(profile['bio'])
                 st.markdown(f"**Total Votes:** {profile.get('votes', 0)}")
                 
-                # Voting controls
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("❤️ Vote for this Profile"):
@@ -223,7 +170,7 @@ try:
                 try:
                     photo_data = None
                     if photo:
-                        if photo.size > 1048576:  # 1MB
+                        if photo.size > 1048576:
                             st.error("Image exceeds size limit")
                         else:
                             photo_data = base64.b64encode(photo.read()).decode("utf-8")
@@ -244,7 +191,7 @@ try:
                     get_profiles()
                     
                 except Exception as e:
-                    log_error("PROFILE_SUBMIT_ERROR", str(e))
+                    log_error(db, "PROFILE_SUBMIT_ERROR", str(e))
                     st.error("Failed to submit profile. Please try again.")
 
     # Leaderboard
@@ -256,17 +203,17 @@ try:
         
         for idx, entry in enumerate(leaderboard):
             st.markdown(f"""
-            <div style="padding: 1rem; margin: 0.5rem 0; border-radius: 10px; background: #f8f9fa;">
+            <div style="padding:1rem; margin:0.5rem 0; border-radius:10px; background:#f8f9fa;">
                 <h4>#{idx+1} {entry['name']}</h4>
                 <p>🎓 {entry['batch_year']} | {entry['gender']} | ❤️ {entry.get('votes', 0)} votes</p>
             </div>
             """, unsafe_allow_html=True)
             
     except Exception as e:
-        log_error("LEADERBOARD_ERROR", str(e))
+        log_error(db, "LEADERBOARD_ERROR", str(e))
         st.error("Failed to load leaderboard")
 
 except Exception as e:
-    log_error("CRITICAL_ERROR", f"{str(e)}\n{traceback.format_exc()}")
+    log_error(db, "CRITICAL_ERROR", f"{str(e)}\n{traceback.format_exc()}")
     st.error("A critical error occurred. Our team has been notified.")
     st.stop()
