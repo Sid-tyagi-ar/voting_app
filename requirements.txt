@@ -3,3 +3,4 @@ firebase-admin
 Pillow
 dnspython3
 requests
+python-dateutil
