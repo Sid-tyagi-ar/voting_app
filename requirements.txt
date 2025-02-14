@@ -4,3 +4,4 @@ Pillow
 dnspython3
 requests
 python-dateutil
+google.cloud.exceptions
