@@ -23,13 +23,12 @@ def get_user_email():
     if 'user_email' not in st.session_state:
         with st.container():
             st.markdown("<div class='auth-section'>", unsafe_allow_html=True)
-            email = st.text_input("📧 Enter your valid email address to vote:")
+            email = st.text_input("📧 Enter your valid institutional email address to vote:")
             
             if st.button("Start Voting"):
                 email = email.strip().lower()
                 if not is_valid_email(email):
-                    st.error("Please enter a valid institutional email address")
-                    log_error(db, "INVALID_EMAIL_ATTEMPT", f"Invalid email tried: {email}")
+                    st.error("Please enter a valid institutional email address (e.g., b22275@students.iitmandi.ac.in).")
                 else:
                     st.session_state.user_email = email
                     st.rerun()
@@ -37,8 +36,8 @@ def get_user_email():
             st.markdown("""<div style="margin-top:1rem;color:#666;font-size:0.9rem">
                 <p>We verify emails to ensure fair voting:</p>
                 <ul>
-                    <li>✅ Valid institutional/organization email</li>
-                    <li>❌ No disposable/temporary emails</li>
+                    <li>✅ Valid institutional email (e.g., b22275@students.iitmandi.ac.in)</li>
+                    <li>❌ No personal or temporary emails</li>
                     <li>🔒 Your email will only be used for vote tracking</li>
                 </ul>
             </div>""", unsafe_allow_html=True)
